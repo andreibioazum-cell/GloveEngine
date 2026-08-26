@@ -1,6 +1,6 @@
 .DS_Store
 .idea
-imgui.ini
+.vscode
 cmake-*
 ImportExecutables-*.cmake
 /out*
@@ -8,19 +8,12 @@ dist
 dist-*
 toolchains
 filament/docs/html/**
-.vscode
-*tmp*.png
 civetweb.txt
 /TAGS
 settings.json
+*tmp*.png
 test*.png
 test*.json
 results
 /compile_commands.json
 /.cache
-
-# For /test/renderdiff dependencies
-/mesa
-/gltf
-/filament-assets
-/venv

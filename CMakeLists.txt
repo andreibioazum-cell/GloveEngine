@@ -992,11 +992,6 @@ add_subdirectory(${FILAMENT}/filament)
 
 set(FILAMENT_SAMPLES_BINARY_DIR ${PROJECT_BINARY_DIR}/samples)
 
-if (WASM)
-    add_subdirectory(web/filament-js)
-    add_subdirectory(web/examples)
-endif()
-
 if (IS_HOST_PLATFORM OR ANDROID)
    add_subdirectory(${LIBRARIES}/filamentapp)
 endif()
@@ -1007,8 +1002,6 @@ if (IS_HOST_PLATFORM)
     endif()
     add_subdirectory(${LIBRARIES}/imageio)
     add_subdirectory(${LIBRARIES}/filament-matp)
-
-    add_subdirectory(${FILAMENT}/samples)
 
     add_subdirectory(${EXTERNAL}/libassimp/tnt)
     add_subdirectory(${EXTERNAL}/libpng/tnt)

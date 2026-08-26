@@ -13,6 +13,13 @@ jobs:
         distribution: temurin
         java-version: 21
 
+    - name: Install Clang 17 and libc++
+      # same toolchain the project's own CI uses (build/common/versions: GITHUB_CLANG_VERSION=17);
+      # Filament host builds require Clang with -stdlib=libc++ (see CMakeLists.txt)
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y clang-17 libc++-17-dev libc++abi-17-dev mesa-common-dev libxi-dev libxxf86vm-dev
+
     - uses: android-actions/setup-android@v3
 
     - name: Install Android SDK packages
@@ -25,9 +32,8 @@ jobs:
 
     - name: Build
       env:
-        # Filament requires Clang for host builds (the project's CI pins clang 17)
-        CC: clang
-        CXX: clang++
+        CC: clang-17
+        CXX: clang++-17
       run: |
         set -euo pipefail
         # builds: host tools (matc, resgen, ...) -> engine libs for the requested

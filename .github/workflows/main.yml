@@ -19,7 +19,9 @@ jobs:
       run: |
         yes | sdkmanager --licenses
         # versions are pinned in android/build.gradle / build/common/versions
-        sdkmanager --install "platforms;android-37" "build-tools;36.0.0" "platform-tools" "ndk;29.0.14206865"
+        # the compileSdk platform (android-37) is auto-downloaded by AGP
+        # once the licenses above are accepted (same as the project's own CI)
+        sdkmanager --install "build-tools;36.0.0" "platform-tools" "ndk;29.0.14206865"
 
     - name: Build
       run: |

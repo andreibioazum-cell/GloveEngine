@@ -24,6 +24,10 @@ jobs:
         sdkmanager --install "build-tools;36.0.0" "platform-tools" "ndk;29.0.14206865"
 
     - name: Build
+      env:
+        # Filament requires Clang for host builds (the project's CI pins clang 17)
+        CC: clang
+        CXX: clang++
       run: |
         set -euo pipefail
         # builds: host tools (matc, resgen, ...) -> engine libs for the requested

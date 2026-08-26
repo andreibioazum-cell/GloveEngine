@@ -1,14 +1,16 @@
 #!/bin/bash
 set -e
 
-# Host tools required by Android, WASM, and iOS builds
+# Host tools required by the Android build (compiled on the desktop host)
 MOBILE_HOST_TOOLS="matc resgen cmgen filamesh uberz"
-WEB_HOST_TOOLS="${MOBILE_HOST_TOOLS} mipgen filamesh glslminifier"
 
 function print_help {
     local self_name=$(basename "$0")
     echo "Usage:"
     echo "    $self_name [options] <build_type1> [<build_type2> ...] [targets]"
+    echo ""
+    echo "GloveEngine builds for Android only (API level 29 / Android 10 and up), for the"
+    echo "32-bit (armeabi-v7a, x86) and 64-bit (arm64-v8a, x86_64) ABIs."
     echo ""
     echo "Options:"
     echo "    -h"
@@ -35,48 +37,24 @@ function print_help {
     echo "        Install build output"
     echo "    -m"
     echo "        Compile with make instead of ninja."
-    echo "    -p platform1,platform2,..."
-    echo "        Where platformN is [desktop|android|ios|wasm|all]."
-    echo "        Platform(s) to build, defaults to desktop."
-    echo "        Building for iOS will automatically perform a partial desktop build."
     echo "    -q abi1,abi2,..."
-    echo "        Where platformN is [armeabi-v7a|arm64-v8a|x86|x86_64|all]."
-    echo "        ABIs to build when the platform is Android. Defaults to all."
+    echo "        Where abiN is [armeabi-v7a|arm64-v8a|x86|x86_64|all]."
+    echo "        ABIs to build. Defaults to all (32-bit and 64-bit)."
     echo "    -v"
     echo "        Exclude Vulkan support from the Android build."
     echo "    -E"
     echo "        Disable C++ exceptions."
     echo "    -W"
-    echo "        Include WebGPU support for the target platform. (NOT functional atm)."
-    echo "    -s"
-    echo "        Add iOS simulator support to the iOS build."
-    echo "    -e"
-    echo "        Enable EGL on Linux support for desktop builds."
-    echo "    -l"
-    echo "        Build universal libraries/frameworks."
-    echo "        For iOS, this builds XCFrameworks for devices and the simulator (implies -s)."
-    echo "        For macOS, this builds universal binaries for both Apple silicon and Intel-based Macs."
+    echo "        Include WebGPU support in the core Filament library. (NOT functional atm)."
     echo "    -k sample1,sample2,..."
-    echo "        When building for Android, also build select sample APKs."
+    echo "        Also build select sample APKs."
     echo "        sampleN is an Android sample, e.g., sample-gltf-viewer."
-    echo "        This automatically performs a partial desktop build and install."
-    echo "    -b"
-    echo "        Enable Address and Undefined Behavior Sanitizers (asan/ubsan) for debugging."
-    echo "        This is only for the desktop build."
-    echo "    -V"
-    echo "        Enable LLVM code coverage for debug builds."
-    echo "        This is only for the desktop build."
+    echo "        This automatically performs a partial host build and install."
     echo "    -x value"
     echo "        Define a preprocessor flag FILAMENT_BACKEND_DEBUG_FLAG with [value]. This is useful for"
     echo "        enabling debug paths in the backend from the build script. For example, make a"
     echo "        systrace-enabled build without directly changing #defines. Remember to add -f when"
     echo "        changing this option."
-    echo "    -X osmesa_path"
-    echo "        Indicates a path to a completed OSMesa build. OSMesa is used to create an offscreen GL"
-    echo "        context for software rasterization"
-    echo "    -S type"
-    echo "        Enable stereoscopic rendering where type is one of [instanced|multiview]. This is only"
-    echo "        meant for building the samples."
     echo "    -P"
     echo "        Enable perfetto traces on Android. Disabled by default on the Release build, enabled otherwise."
     echo "    -y build_type"
@@ -98,38 +76,25 @@ function print_help {
     echo "    Any target supported by the underlying build system"
     echo ""
     echo "Examples:"
-    echo "    Desktop release build:"
+    echo "    Android release build:"
     echo "        \$ ./$self_name release"
     echo ""
-    echo "    Desktop debug and release builds:"
+    echo "    Android debug and release builds:"
     echo "        \$ ./$self_name debug release"
     echo ""
-    echo "    Clean, desktop debug build and create archive of build artifacts:"
+    echo "    Clean, Android debug build and create archive of build artifacts:"
     echo "        \$ ./$self_name -c -a debug"
     echo ""
-    echo "    Android release build type:"
-    echo "        \$ ./$self_name -p android release"
+    echo "    Android release build, arm64-v8a only:"
+    echo "        \$ ./$self_name -q arm64-v8a release"
     echo ""
-    echo "    Desktop and Android release builds, with installation:"
-    echo "        \$ ./$self_name -p desktop,android -i release"
+    echo "    Build gltf_viewer sample APK:"
+    echo "        \$ ./$self_name -k sample-gltf-viewer release"
     echo ""
-    echo "    Desktop matc target, release build:"
-    echo "        \$ ./$self_name release matc"
-    echo ""
-    echo "    Build gltf_viewer:"
-    echo "        \$ ./$self_name release gltf_viewer"
-    echo ""
- }
+}
 
 function print_matdbg_help {
     echo "matdbg is enabled in the build, but some extra steps are needed."
-    echo ""
-    echo "FOR DESKTOP BUILDS:"
-    echo ""
-    echo "Please set the port environment variable before launching. e.g., on macOS do:"
-    echo "   export FILAMENT_MATDBG_PORT=8080"
-    echo ""
-    echo "FOR ANDROID BUILDS:"
     echo ""
     echo "1) For Android Studio builds, make sure to set:"
     echo "       -Pcom.google.android.filament.matdbg"
@@ -144,13 +109,6 @@ function print_matdbg_help {
 
 function print_fgviewer_help {
     echo "fgviewer is enabled in the build, but some extra steps are needed."
-    echo ""
-    echo "FOR DESKTOP BUILDS:"
-    echo ""
-    echo "Please set the port environment variable before launching. e.g., on macOS do:"
-    echo "   export FILAMENT_FGVIEWER_PORT=8085"
-    echo ""
-    echo "FOR ANDROID BUILDS:"
     echo ""
     echo "1) For Android Studio builds, make sure to set:"
     echo "       -Pcom.google.android.filament.fgviewer"
@@ -173,13 +131,7 @@ ISSUE_CLEAN_AGGRESSIVE=false
 ISSUE_DEBUG_BUILD=false
 ISSUE_RELEASE_BUILD=false
 
-# Default: build desktop only
-ISSUE_ANDROID_BUILD=false
-ISSUE_IOS_BUILD=false
-ISSUE_DESKTOP_BUILD=true
-ISSUE_WASM_BUILD=false
-
-# Default: all
+# Default: all 32-bit and 64-bit ABIs
 ABI_ARMEABI_V7A=true
 ABI_ARM64_V8A=true
 ABI_X86=true
@@ -187,9 +139,7 @@ ABI_X86_64=true
 ABI_GRADLE_OPTION="all"
 
 ISSUE_ARCHIVES=false
-BUILD_JS_DOCS=false
 BUILD_DOKKA_DOCS=false
-PLATFORM_SPECIFIED=false
 
 ISSUE_CMAKE_ALWAYS=false
 
@@ -204,8 +154,6 @@ VULKAN_ANDROID_GRADLE_OPTION=""
 WEBGPU_OPTION="-DFILAMENT_SUPPORTS_WEBGPU=OFF"
 WEBGPU_ANDROID_GRADLE_OPTION=""
 
-EGL_ON_LINUX_OPTION="-DFILAMENT_SUPPORTS_EGL_ON_LINUX=OFF"
-
 MATDBG_OPTION="-DFILAMENT_ENABLE_MATDBG=OFF"
 MATDBG_GRADLE_OPTION=""
 FGVIEWER_OPTION="-DFILAMENT_ENABLE_FGVIEWER=OFF"
@@ -216,18 +164,9 @@ MUTEX_DEBUG_GRADLE_OPTION=""
 MATOPT_OPTION=""
 MATOPT_GRADLE_OPTION=""
 
-ASAN_UBSAN_OPTION=""
-COVERAGE_OPTION=""
 ENABLE_PERFETTO=""
 
 BACKEND_DEBUG_FLAG_OPTION=""
-
-STEREOSCOPIC_OPTION=""
-
-OSMESA_OPTION=""
-
-IOS_BUILD_SIMULATOR=false
-BUILD_UNIVERSAL_LIBRARIES=false
 
 ISSUE_SPLIT_BUILD=true
 SPLIT_BUILD_TYPE="release"
@@ -269,25 +208,16 @@ function build_tools_for_split_build {
 
     pushd "${PREBUILT_TOOLS_DIR}" > /dev/null
 
-    local lc_name=$(echo "${UNAME}" | tr '[:upper:]' '[:lower:]')
-    local architectures=""
-    if [[ "${lc_name}" == "darwin" ]]; then
-        if [[ "${BUILD_UNIVERSAL_LIBRARIES}" == "true" ]]; then
-            architectures="-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
-        fi
-    fi
-
     cmake \
         -G "${BUILD_GENERATOR}" \
         -DFILAMENT_EXPORT_PREBUILT_EXECUTABLES_DIR=${PREBUILT_TOOLS_DIR} \
         -DCMAKE_BUILD_TYPE="${build_type_arg}" \
         ${WEBGPU_OPTION} \
-        ${architectures} \
         ${EXCEPTIONS_OPTION} \
         ${MUTEX_DEBUG_OPTION} \
-        ../..
+        ../../
 
-    ${BUILD_COMMAND} ${WEB_HOST_TOOLS}
+    ${BUILD_COMMAND} ${MOBILE_HOST_TOOLS}
 
     popd > /dev/null
 }
@@ -300,17 +230,10 @@ function build_desktop_target {
         build_targets=${BUILD_CUSTOM_TARGETS}
     fi
 
-    echo "Building ${lc_target} in out/cmake-${lc_target}..."
+    echo "Building host ${lc_target} in out/cmake-${lc_target}..."
     mkdir -p "out/cmake-${lc_target}"
 
     pushd "out/cmake-${lc_target}" > /dev/null
-
-    local lc_name=$(echo "${UNAME}" | tr '[:upper:]' '[:lower:]')
-    if [[ "${lc_name}" == "darwin" ]]; then
-        if [[ "${BUILD_UNIVERSAL_LIBRARIES}" == "true" ]]; then
-            local architectures="-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
-        fi
-    fi
 
     if [[ ! -d "CMakeFiles" ]] || [[ "${ISSUE_CMAKE_ALWAYS}" == "true" ]]; then
         cmake \
@@ -318,20 +241,14 @@ function build_desktop_target {
             ${IMPORT_EXECUTABLES_DIR_OPTION} \
             -DCMAKE_BUILD_TYPE="$1" \
             -DCMAKE_INSTALL_PREFIX="../${lc_target}/filament" \
-            ${EGL_ON_LINUX_OPTION} \
             ${FGVIEWER_OPTION} \
             ${WEBGPU_OPTION} \
             ${MATDBG_OPTION} \
             ${MATOPT_OPTION} \
-            ${ASAN_UBSAN_OPTION} \
-            ${COVERAGE_OPTION} \
             ${BACKEND_DEBUG_FLAG_OPTION} \
-            ${STEREOSCOPIC_OPTION} \
-            ${OSMESA_OPTION} \
             ${EXCEPTIONS_OPTION} \
             ${MUTEX_DEBUG_OPTION} \
-            ${architectures} \
-            ../..
+            ../../
         ln -sf "out/cmake-${lc_target}/compile_commands.json" \
            ../../compile_commands.json
     fi
@@ -342,112 +259,18 @@ function build_desktop_target {
         ${BUILD_COMMAND} ${INSTALL_COMMAND}
     fi
 
-    if [[ -d "../${lc_target}/filament" ]]; then
-        if [[ "${ISSUE_ARCHIVES}" == "true" ]]; then
-            echo "Generating out/filament-${lc_target}-${LC_UNAME}.tgz..."
-            pushd "../${lc_target}" > /dev/null
-            tar -czvf "../filament-${lc_target}-${LC_UNAME}.tgz" filament
-            popd > /dev/null
-        fi
-    fi
-
     popd > /dev/null
 }
 
 function build_desktop {
+    # The Android build requires host-side tools (matc, resgen, ...), which are
+    # built for the desktop as part of this flow.
     if [[ "${ISSUE_DEBUG_BUILD}" == "true" ]]; then
         build_desktop_target "Debug" "$1"
     fi
 
     if [[ "${ISSUE_RELEASE_BUILD}" == "true" ]]; then
         build_desktop_target "Release" "$1"
-    fi
-}
-
-function build_wasm_with_target {
-    local lc_target=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-
-    echo "Building WASM ${lc_target}..."
-    mkdir -p "out/cmake-wasm-${lc_target}"
-    pushd "out/cmake-wasm-${lc_target}" > /dev/null
-
-    if [[ ! "${BUILD_TARGETS}" ]]; then
-        BUILD_TARGETS=${BUILD_CUSTOM_TARGETS}
-        ISSUE_CMAKE_ALWAYS=true
-    fi
-
-    if [[ "${WEBGPU_OPTION}" == *"-DFILAMENT_SUPPORTS_WEBGPU=ON"* ]]; then
-        WEBGPU_OPTION="${WEBGPU_OPTION} -DCMAKE_CXX_FLAGS=\"--use-port=emdawnwebgpu\""
-        WEBGPU_OPTION="${WEBGPU_OPTION} -DCMAKE_C_FLAGS=\"--use-port=emdawnwebgpu\""
-    fi
-
-    if [[ ! -d "CMakeFiles" ]] || [[ "${ISSUE_CMAKE_ALWAYS}" == "true" ]]; then
-        # Apply the emscripten environment within a subshell.
-        (
-        # shellcheck disable=SC1090
-        source "${EMSDK}/emsdk_env.sh"
-        cmake \
-            -G "${BUILD_GENERATOR}" \
-            ${IMPORT_EXECUTABLES_DIR_OPTION} \
-            -DCMAKE_TOOLCHAIN_FILE="${EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
-            -DCMAKE_BUILD_TYPE="$1" \
-            -DCMAKE_INSTALL_PREFIX="../wasm-${lc_target}/filament" \
-            -DWASM=1 \
-            ${WEBGPU_OPTION} \
-            ${BACKEND_DEBUG_FLAG_OPTION} \
-            ${EXCEPTIONS_OPTION} \
-            ${MUTEX_DEBUG_OPTION} \
-            ../..
-        ln -sf "out/cmake-wasm-${lc_target}/compile_commands.json" \
-           ../../compile_commands.json
-        ${BUILD_COMMAND} ${BUILD_TARGETS}
-        )
-    fi
-
-    if [[ -d "web/filament-js" ]]; then
-
-        if [[ "${BUILD_JS_DOCS}" == "true" ]]; then
-            echo "Generating JavaScript documentation..."
-            local DOCS_FOLDER="web/docs"
-            local DOCS_SCRIPT="../../web/docs/build.py"
-            python3 ${DOCS_SCRIPT} --disable-demo \
-                --output-folder "${DOCS_FOLDER}" \
-                --build-folder "${PWD}"
-        fi
-
-        if [[ "${ISSUE_ARCHIVES}" == "true" ]]; then
-            echo "Generating out/filament-${lc_target}-web.tgz..."
-            pushd web/filament-js > /dev/null
-            tar -cvf "../../../filament-${lc_target}-web.tar" filament.js
-            tar -rvf "../../../filament-${lc_target}-web.tar" filament.wasm
-            tar -rvf "../../../filament-${lc_target}-web.tar" filament.d.ts
-            popd > /dev/null
-            gzip -c "../filament-${lc_target}-web.tar" > "../filament-${lc_target}-web.tgz"
-            rm "../filament-${lc_target}-web.tar"
-        fi
-    fi
-
-    popd > /dev/null
-}
-
-function build_wasm {
-    # For the host tools, suppress install and always use Release.
-    local old_install_command=${INSTALL_COMMAND}; INSTALL_COMMAND=
-    local old_issue_debug_build=${ISSUE_DEBUG_BUILD}; ISSUE_DEBUG_BUILD=false
-    local old_issue_release_build=${ISSUE_RELEASE_BUILD}; ISSUE_RELEASE_BUILD=true
-
-    build_desktop "${WEB_HOST_TOOLS}"
-
-    INSTALL_COMMAND=${old_install_command}
-    ISSUE_DEBUG_BUILD=${old_issue_debug_build}
-    ISSUE_RELEASE_BUILD=${old_issue_release_build}
-
-    if [[ "${ISSUE_DEBUG_BUILD}" == "true" ]]; then
-        build_wasm_with_target "Debug"
-    fi
-
-    if [[ "${ISSUE_RELEASE_BUILD}" == "true" ]]; then
-        build_wasm_with_target "Release"
     fi
 }
 
@@ -474,11 +297,10 @@ function build_android_target {
             ${VULKAN_ANDROID_OPTION} \
             ${WEBGPU_OPTION} \
             ${BACKEND_DEBUG_FLAG_OPTION} \
-            ${STEREOSCOPIC_OPTION} \
             ${ENABLE_PERFETTO} \
             ${EXCEPTIONS_OPTION} \
             ${MUTEX_DEBUG_OPTION} \
-            ../..
+            ../../
         ln -sf "out/cmake-android-${lc_target}-${arch}/compile_commands.json" \
            ../../compile_commands.json
     fi
@@ -696,151 +518,6 @@ function build_android {
     popd > /dev/null
 }
 
-function build_ios_target {
-    local lc_target=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-    local arch=$2
-    local platform=$3
-
-    echo "Building iOS ${lc_target} (${arch}) for ${platform}..."
-    mkdir -p "out/cmake-ios-${lc_target}-${arch}-${platform}"
-
-    pushd "out/cmake-ios-${lc_target}-${arch}-${platform}" > /dev/null
-
-    if [[ ! -d "CMakeFiles" ]] || [[ "${ISSUE_CMAKE_ALWAYS}" == "true" ]]; then
-        cmake \
-            -G "${BUILD_GENERATOR}" \
-            ${IMPORT_EXECUTABLES_DIR_OPTION} \
-            -DCMAKE_BUILD_TYPE="$1" \
-            -DCMAKE_INSTALL_PREFIX="../ios-${lc_target}/filament" \
-            -DIOS_ARCH="${arch}" \
-            -DPLATFORM_NAME="${platform}" \
-            -DIOS=1 \
-            -DCMAKE_TOOLCHAIN_FILE=../../third_party/clang/iOS.cmake \
-            ${FGVIEWER_OPTION} \
-            ${WEBGPU_OPTION} \
-            ${MATDBG_OPTION} \
-            ${MATOPT_OPTION} \
-            ${STEREOSCOPIC_OPTION} \
-            ${EXCEPTIONS_OPTION} \
-            ${MUTEX_DEBUG_OPTION} \
-            ../..
-        ln -sf "out/cmake-ios-${lc_target}-${arch}/compile_commands.json" \
-           ../../compile_commands.json
-    fi
-
-    ${BUILD_COMMAND}
-
-    if [[ "${INSTALL_COMMAND}" ]]; then
-        echo "Installing ${lc_target} in out/${lc_target}/filament..."
-        ${BUILD_COMMAND} ${INSTALL_COMMAND}
-    fi
-
-    popd > /dev/null
-}
-
-function archive_ios {
-    local lc_target=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-
-    if [[ -d "out/ios-${lc_target}/filament" ]]; then
-        if [[ "${ISSUE_ARCHIVES}" == "true" ]]; then
-            echo "Generating out/filament-${lc_target}-ios.tgz..."
-            pushd "out/ios-${lc_target}" > /dev/null
-            tar -czvf "../filament-${lc_target}-ios.tgz" filament
-            popd > /dev/null
-        fi
-    fi
-}
-
-function build_ios {
-    # Suppress intermediate desktop tools install
-    local old_install_command=${INSTALL_COMMAND}
-    INSTALL_COMMAND=
-
-    build_desktop "${MOBILE_HOST_TOOLS}"
-
-    INSTALL_COMMAND=${old_install_command}
-
-    # In theory, we could support iPhone architectures older than arm64, but
-    # only arm64 devices support OpenGL 3.0 / Metal
-
-    if [[ "${ISSUE_DEBUG_BUILD}" == "true" ]]; then
-        local out_dir="out/ios-debug/filament"
-        local lib_dir="${out_dir}/lib"
-        
-        build_ios_target "Debug" "arm64" "iphoneos"
-        
-        if [[ "${IOS_BUILD_SIMULATOR}" == "true" ]]; then
-            build_ios_target "Debug" "arm64" "iphonesimulator"
-            build_ios_target "Debug" "x86_64" "iphonesimulator"
-            
-            # Create a universal library for the simulator
-            build/ios/create-universal-libs.sh \
-                -o "${lib_dir}/universal" \
-                "${lib_dir}/arm64-iphonesimulator" \
-                "${lib_dir}/x86_64-iphonesimulator"
-        fi
-
-        # Always create XCFrameworks
-        local xcframework_paths=("${lib_dir}/arm64-iphoneos")
-        if [[ -d "${lib_dir}/universal" ]]; then
-            xcframework_paths+=("${lib_dir}/universal")
-        elif [[ -d "${lib_dir}/arm64-iphonesimulator" ]]; then
-            # If we built only one simulator arch but not both
-            xcframework_paths+=("${lib_dir}/arm64-iphonesimulator")
-        elif [[ -d "${lib_dir}/x86_64-iphonesimulator" ]]; then
-            xcframework_paths+=("${lib_dir}/x86_64-iphonesimulator")
-        fi
-
-        build/ios/create-xc-frameworks.sh -o "${lib_dir}" "${xcframework_paths[@]}"
-
-        rm -rf \
-            "${lib_dir}/arm64-iphoneos" \
-            "${lib_dir}/arm64-iphonesimulator" \
-            "${lib_dir}/x86_64-iphonesimulator" \
-            "${lib_dir}/universal"
-
-        archive_ios "Debug"
-    fi
-
-    if [[ "${ISSUE_RELEASE_BUILD}" == "true" ]]; then
-        local out_dir="out/ios-release/filament"
-        local lib_dir="${out_dir}/lib"
-
-        build_ios_target "Release" "arm64" "iphoneos"
-        
-        if [[ "${IOS_BUILD_SIMULATOR}" == "true" ]]; then
-            build_ios_target "Release" "arm64" "iphonesimulator"
-            build_ios_target "Release" "x86_64" "iphonesimulator"
-            
-            # Create a universal library for the simulator
-            build/ios/create-universal-libs.sh \
-                -o "${lib_dir}/universal" \
-                "${lib_dir}/arm64-iphonesimulator" \
-                "${lib_dir}/x86_64-iphonesimulator"
-        fi
-
-        # Always create XCFrameworks
-        local xcframework_paths=("${lib_dir}/arm64-iphoneos")
-        if [[ -d "${lib_dir}/universal" ]]; then
-            xcframework_paths+=("${lib_dir}/universal")
-        elif [[ -d "${lib_dir}/arm64-iphonesimulator" ]]; then
-            xcframework_paths+=("${lib_dir}/arm64-iphonesimulator")
-        elif [[ -d "${lib_dir}/x86_64-iphonesimulator" ]]; then
-            xcframework_paths+=("${lib_dir}/x86_64-iphonesimulator")
-        fi
-
-        build/ios/create-xc-frameworks.sh -o "${lib_dir}" "${xcframework_paths[@]}"
-
-        rm -rf \
-            "${lib_dir}/arm64-iphoneos" \
-            "${lib_dir}/arm64-iphonesimulator" \
-            "${lib_dir}/x86_64-iphonesimulator" \
-            "${lib_dir}/universal"
-
-        archive_ios "Release"
-    fi
-}
-
 function validate_build_command {
     set +e
     # Make sure CMake is installed
@@ -867,9 +544,10 @@ function validate_build_command {
             exit 1
         fi
     fi
-    # If building a WebAssembly module, ensure we know where Emscripten lives.
-    if [[ "${EMSDK}" == "" ]] && [[ "${ISSUE_WASM_BUILD}" == "true" ]]; then
-        echo "Error: EMSDK is not set, exiting"
+
+    # Make sure ANDROID_HOME is available
+    if [[ "${ANDROID_HOME}" == "" ]]; then
+        echo "Error: ANDROID_HOME is not set, exiting"
         exit 1
     fi
 
@@ -898,7 +576,7 @@ function check_debug_release_build {
 
 pushd "$(dirname "$0")" > /dev/null
 
-while getopts ":hacCfgDimp:q:vWslwedtk:bVx:S:X:Py:ETu" opt; do
+while getopts ":hacCfgDitmdq:uvk:WEPy:x:" opt; do
     case ${opt} in
         h)
             print_help
@@ -942,40 +620,6 @@ while getopts ":hacCfgDimp:q:vWslwedtk:bVx:S:X:Py:ETu" opt; do
         m)
             BUILD_GENERATOR="Unix Makefiles"
             BUILD_COMMAND="make"
-            ;;
-        p)
-            PLATFORM_SPECIFIED=true
-            ISSUE_DESKTOP_BUILD=false
-            platforms=$(echo "${OPTARG}" | tr ',' '\n')
-            for platform in ${platforms}
-            do
-                case $(echo "${platform}" | tr '[:upper:]' '[:lower:]') in
-                    desktop)
-                        ISSUE_DESKTOP_BUILD=true
-                    ;;
-                    android)
-                        ISSUE_ANDROID_BUILD=true
-                    ;;
-                    ios)
-                        ISSUE_IOS_BUILD=true
-                    ;;
-                    wasm)
-                        ISSUE_WASM_BUILD=true
-                    ;;
-                    all)
-                        ISSUE_ANDROID_BUILD=true
-                        ISSUE_IOS_BUILD=true
-                        ISSUE_DESKTOP_BUILD=true
-                        ISSUE_WASM_BUILD=false
-                    ;;
-                    *)
-                        echo "Unknown platform ${platform}"
-                        echo "Platform must be one of [desktop|android|ios|wasm|all]"
-                        echo ""
-                        exit 1
-                    ;;
-                esac
-            done
             ;;
         q)
             ABI_ARMEABI_V7A=false
@@ -1026,31 +670,9 @@ while getopts ":hacCfgDimp:q:vWslwedtk:bVx:S:X:Py:ETu" opt; do
             WEBGPU_ANDROID_GRADLE_OPTION="-Pcom.google.android.filament.include-webgpu"
             echo "Enable support for WebGPU(Experimental) in the core Filament library."
             ;;
-        s)
-            IOS_BUILD_SIMULATOR=true
-            echo "iOS simulator support enabled."
-            ;;
-        e)
-            EGL_ON_LINUX_OPTION="-DFILAMENT_SUPPORTS_EGL_ON_LINUX=ON -DFILAMENT_SKIP_SDL2=ON -DFILAMENT_SKIP_SAMPLES=ON"
-            echo "EGL on Linux support enabled; skipping SDL2."
-            ;;
-        l)
-            IOS_BUILD_SIMULATOR=true
-            BUILD_UNIVERSAL_LIBRARIES=true
-            echo "Building universal libraries."
-            ;;
         k)
             BUILD_ANDROID_SAMPLES=true
             ANDROID_SAMPLES=$(echo "${OPTARG}" | tr ',' '\n')
-            ;;
-        b)  ASAN_UBSAN_OPTION="-DFILAMENT_ENABLE_ASAN_UBSAN=ON"
-            echo "Enabled ASAN/UBSAN"
-            ;;
-        T)  ASAN_UBSAN_OPTION="-DFILAMENT_ENABLE_TSAN=ON"
-            echo "Enabled TSan"
-            ;;
-        V)  COVERAGE_OPTION="-DFILAMENT_ENABLE_COVERAGE=ON"
-            echo "Enabled coverage"
             ;;
         P)  ENABLE_PERFETTO="-DFILAMENT_ENABLE_PERFETTO=ON"
             echo "Enabled perfetto"
@@ -1059,22 +681,6 @@ while getopts ":hacCfgDimp:q:vWslwedtk:bVx:S:X:Py:ETu" opt; do
             echo "Disabling exceptions."
             ;;
         x)  BACKEND_DEBUG_FLAG_OPTION="-DFILAMENT_BACKEND_DEBUG_FLAG=${OPTARG}"
-            ;;
-        S)  case $(echo "${OPTARG}" | tr '[:upper:]' '[:lower:]') in
-                instanced)
-                    STEREOSCOPIC_OPTION="-DFILAMENT_SAMPLES_STEREO_TYPE=instanced"
-                    ;;
-                multiview)
-                    STEREOSCOPIC_OPTION="-DFILAMENT_SAMPLES_STEREO_TYPE=multiview"
-                    ;;
-                *)
-                    echo "Unknown stereoscopic type ${OPTARG}"
-                    echo "Type must be one of [instanced|multiview]"
-                    echo ""
-                    exit 1
-            esac
-            ;;
-        X)  OSMESA_OPTION="-DFILAMENT_OSMESA_PATH=${OPTARG}"
             ;;
         D)
             BUILD_DOKKA_DOCS=true
@@ -1128,11 +734,6 @@ for arg; do
     fi
 done
 
-# Prevent building desktop if only docs are requested.
-if [[ "${BUILD_DOKKA_DOCS}" == "true" ]] && [[ "${PLATFORM_SPECIFIED}" != "true" ]]; then
-    ISSUE_DESKTOP_BUILD=false
-fi
-
 validate_build_command
 
 if [[ "${ISSUE_CLEAN}" == "true" ]]; then
@@ -1153,21 +754,7 @@ if [[ "${ISSUE_SPLIT_BUILD}" == "true" ]] && \
     IMPORT_EXECUTABLES_DIR_OPTION="-DFILAMENT_IMPORT_PREBUILT_EXECUTABLES_DIR=${PREBUILT_TOOLS_DIR}"
 fi
 
-if [[ "${ISSUE_DESKTOP_BUILD}" == "true" ]]; then
-    check_debug_release_build build_desktop
-fi
-
-if [[ "${ISSUE_ANDROID_BUILD}" == "true" ]]; then
-    check_debug_release_build build_android
-fi
-
-if [[ "${ISSUE_IOS_BUILD}" == "true" ]]; then
-    check_debug_release_build build_ios
-fi
-
-if [[ "${ISSUE_WASM_BUILD}" == "true" ]]; then
-    check_debug_release_build build_wasm
-fi
+check_debug_release_build build_android
 
 if [[ "${BUILD_DOKKA_DOCS}" == "true" ]]; then
     echo "Generating Android Markdown documentation using Dokka..."

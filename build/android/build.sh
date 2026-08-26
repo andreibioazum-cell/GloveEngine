@@ -43,11 +43,11 @@ function build_android() {
 
     # Do the following in two steps so that we do not run out of space
     if [[ -n "${BUILD_DEBUG}" ]]; then
-        FILAMENT_NDK_VERSION=${FILAMENT_NDK_VERSION} ./build.sh -p android -q ${ABI} -c ${BUILD_SAMPLES} ${GENERATE_ARCHIVES} ${BUILD_DEBUG}
+        FILAMENT_NDK_VERSION=${FILAMENT_NDK_VERSION} ./build.sh -q ${ABI} -c ${BUILD_SAMPLES} ${GENERATE_ARCHIVES} ${BUILD_DEBUG}
         rm -rf out/cmake-android-debug-*
     fi
     if [[ -n "${BUILD_RELEASE}" ]]; then
-        FILAMENT_NDK_VERSION=${FILAMENT_NDK_VERSION} ./build.sh -p android -q ${ABI} -c ${BUILD_SAMPLES} ${GENERATE_ARCHIVES} ${BUILD_RELEASE}
+        FILAMENT_NDK_VERSION=${FILAMENT_NDK_VERSION} ./build.sh -q ${ABI} -c ${BUILD_SAMPLES} ${GENERATE_ARCHIVES} ${BUILD_RELEASE}
         rm -rf out/cmake-android-release-*
     fi
 }

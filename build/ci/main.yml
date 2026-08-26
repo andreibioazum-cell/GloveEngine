@@ -1,0 +1,103 @@
+name: GloveEngine
+
+on: [push, workflow_dispatch]
+
+# A newer push to the same ref makes the running job pointless: stop it and free
+# the runner instead of paying for a build nobody will look at.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CC: clang-17
+  CXX: clang++-17
+
+  # CMake initialises CMAKE_<LANG>_COMPILER_LAUNCHER from the environment
+  # variable of the same name, so BOTH the host-tools build and the NDK builds
+  # that Gradle drives pick ccache up - no CMakeLists.txt changes required.
+  CMAKE_C_COMPILER_LAUNCHER: ccache
+  CMAKE_CXX_COMPILER_LAUNCHER: ccache
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 3G
+  CCACHE_BASEDIR: ${{ github.workspace }}
+
+  # Only the 64-bit ABI is built - this is the single biggest saving, it removes
+  # an entire native build. Put "arm64-v8a,armeabi-v7a" back if you still ship
+  # to 32-bit devices.
+  GLOVE_ABIS: arm64-v8a
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: 21
+
+    - name: Install Clang 17, libc++ and ccache
+      # same toolchain the project's own CI uses (build/common/versions: GITHUB_CLANG_VERSION=17);
+      # Filament host builds require Clang with -stdlib=libc++ (see CMakeLists.txt)
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y clang-17 libc++-17-dev libc++abi-17-dev ccache \
+          mesa-common-dev libxi-dev libxxf86vm-dev
+
+    - name: Restore compiler cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: >-
+          ccache-${{ runner.os }}-clang17-${{ hashFiles('CMakeLists.txt', 'build.sh',
+          'filament/**', 'libs/**', 'tools/**', 'shaders/**', 'android/**/*.gradle') }}
+        restore-keys: |
+          ccache-${{ runner.os }}-clang17-
+
+    - name: Restore Gradle cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: >-
+          gradle-${{ hashFiles('android/**/*.gradle',
+          'android/gradle/wrapper/gradle-wrapper.properties') }}
+        restore-keys: |
+          gradle-
+
+    - uses: android-actions/setup-android@v3
+
+    - name: Install Android SDK packages
+      run: |
+        yes | sdkmanager --licenses
+        # versions are pinned in android/build.gradle / build/common/versions
+        # the compileSdk platform (android-37) is auto-downloaded by AGP
+        # once the licenses above are accepted (same as the project's own CI)
+        sdkmanager --install "build-tools;36.0.0" "platform-tools" "ndk;29.0.14206865"
+
+    - name: Build
+      run: |
+        set -euo pipefail
+        ccache --zero-stats
+        # builds: host tools (matc, resgen, ...) -> engine libs for the requested
+        # ABIs -> AARs -> sample APK.
+        ./build.sh -k sample-gltf-viewer -q "${GLOVE_ABIS}" -i debug
+        ccache --show-stats
+
+    - name: Package
+      run: |
+        set -euo pipefail
+        cp out/sample-gltf-viewer-debug.apk GloveEngine.apk
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: GloveEngine
+        path: |
+          GloveEngine.apk
+          out/filament-android-debug.aar
+          out/gltfio-android-debug.aar
+          out/filament-utils-android-debug.aar
+          out/filamat-android-debug.aar

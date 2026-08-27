@@ -84,13 +84,16 @@ jobs:
         ccache --zero-stats
         # builds: host tools (matc, resgen, ...) -> engine libs for the requested
         # ABIs -> AARs -> sample APK.
-        ./build.sh -k sample-gltf-viewer -q "${GLOVE_ABIS}" -i debug
+        # sample-lit-cube renders a single rotating cube from hardcoded vertex data with
+        # one compiled .mat material: no glTF models, no IBL environment, no third_party
+        # assets, and it only depends on :filament-android.
+        ./build.sh -k sample-lit-cube -q "${GLOVE_ABIS}" -i debug
         ccache --show-stats
 
     - name: Package
       run: |
         set -euo pipefail
-        cp out/sample-gltf-viewer-debug.apk GloveEngine.apk
+        cp out/sample-lit-cube-debug.apk GloveEngine.apk
 
     - uses: actions/upload-artifact@v4
       with:

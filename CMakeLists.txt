@@ -867,10 +867,10 @@ set(IMPORT_EXECUTABLES ${FILAMENT}/${IMPORT_EXECUTABLES_DIR}/ImportExecutables-$
 # Common Functions
 # ==================================================================================================
 
-# Sets the following variables: RESGEN_HEADER, RESGEN_SOURCE, RESGEN_FLAGS, RESGEN_SOURCE_FLAGS,
-# and RESGEN_OUTPUTS. Please pass in an ARCHIVE_NAME that is unique to your project, otherwise the
-# incbin directive will happily consume a blob from the wrong project without warnings or errors.
-# Also be sure to include the ASM language in the CMake "project" directive for your project.
+# Sets the following variables: RESGEN_HEADER, RESGEN_SOURCE, RESGEN_FLAGS and RESGEN_OUTPUTS.
+# Please pass in an ARCHIVE_NAME that is unique to your project, otherwise the resource symbols will
+# happily collide with those of another project without warnings or errors.
+# RESGEN_SOURCE is a C translation unit, so no ASM language is needed in the "project" directive.
 function(get_resgen_vars ARCHIVE_DIR ARCHIVE_NAME)
     set(OUTPUTS
         ${ARCHIVE_DIR}/${ARCHIVE_NAME}.bin
@@ -878,25 +878,16 @@ function(get_resgen_vars ARCHIVE_DIR ARCHIVE_NAME)
         ${ARCHIVE_DIR}/${ARCHIVE_NAME}.apple.S
         ${ARCHIVE_DIR}/${ARCHIVE_NAME}.h
     )
-    if (IOS)
-        set(ASM_ARCH_FLAG "-arch ${DIST_ARCH}")
-    endif()
-    if (APPLE)
-        set(ASM_SUFFIX ".apple")
-    endif()
     set(RESGEN_HEADER "${ARCHIVE_DIR}/${ARCHIVE_NAME}.h" PARENT_SCOPE)
-    # Visual Studio makes it difficult to use assembly without using MASM. MASM doesn't support
-    # the equivalent of .incbin, so on Windows we'll just tell resgen to output a C file.
-    if (WASM OR WIN32 OR ANDROID_ON_WINDOWS)
-        set(RESGEN_OUTPUTS "${OUTPUTS};${ARCHIVE_DIR}/${ARCHIVE_NAME}.c" PARENT_SCOPE)
-        set(RESGEN_FLAGS -qcx ${ARCHIVE_DIR} -p ${ARCHIVE_NAME} PARENT_SCOPE)
-        set(RESGEN_SOURCE "${ARCHIVE_DIR}/${ARCHIVE_NAME}.c" PARENT_SCOPE)
-    else()
-        set(RESGEN_OUTPUTS "${OUTPUTS}" PARENT_SCOPE)
-        set(RESGEN_FLAGS -qx ${ARCHIVE_DIR} -p ${ARCHIVE_NAME} PARENT_SCOPE)
-        set(RESGEN_SOURCE "${ARCHIVE_DIR}/${ARCHIVE_NAME}${ASM_SUFFIX}.S" PARENT_SCOPE)
-        set(RESGEN_SOURCE_FLAGS "-I'${ARCHIVE_DIR}' ${ASM_ARCH_FLAG}" PARENT_SCOPE)
-    endif()
+    # resgen can embed the aggregated blob either through an .incbin assembly file or
+    # through a plain C translation unit. We always take the C route, so the build only
+    # ever contains C/C++: no assembler in the compile graph, no per-platform .S variant
+    # to select, and none of the MASM/.incbin portability problems that motivated the
+    # Windows special case in the first place. resgen still emits the .S files next to the
+    # .c one (hence their presence in RESGEN_OUTPUTS), they are simply never compiled.
+    set(RESGEN_OUTPUTS "${OUTPUTS};${ARCHIVE_DIR}/${ARCHIVE_NAME}.c" PARENT_SCOPE)
+    set(RESGEN_FLAGS -qcx ${ARCHIVE_DIR} -p ${ARCHIVE_NAME} PARENT_SCOPE)
+    set(RESGEN_SOURCE "${ARCHIVE_DIR}/${ARCHIVE_NAME}.c" PARENT_SCOPE)
 endfunction()
 
 # ==================================================================================================

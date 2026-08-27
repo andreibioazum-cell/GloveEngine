@@ -435,7 +435,14 @@ if (ANDROID)
     if (FILAMENT_SUPPORTS_OPENGL)
         target_link_libraries(${TARGET} PUBLIC GLESv3 EGL)
     endif()
-    target_link_libraries(${TARGET} PUBLIC android)
+    # ANativeWindow_getBuffersDataSpace() lives in libnativewindow.so (API level 26+),
+    # not in libandroid.so. AndroidNativeWindow.cpp calls it directly whenever
+    # FILAMENT_ANDROID_PLATFORM_API_LEVEL >= 26 (utils/api_level.h falls that macro back
+    # to __ANDROID_API__), so every *executable* linking backend fails to link with
+    # "undefined symbol: ANativeWindow_getBuffersDataSpace" unless nativewindow is here.
+    # Shared libraries tolerate the undefined symbol, which is why only test_filament hit it.
+    # This project targets API_LEVEL 29 (see build/toolchain-*-linux-android.cmake).
+    target_link_libraries(${TARGET} PUBLIC android nativewindow)
 endif()
 
 if (FILAMENT_USE_SWIFTSHADER)

@@ -291,6 +291,7 @@ function build_android_target {
             -DFILAMENT_NDK_VERSION="${FILAMENT_NDK_VERSION}" \
             -DCMAKE_INSTALL_PREFIX="../android-${lc_target}/filament" \
             -DCMAKE_TOOLCHAIN_FILE="../../build/toolchain-${arch}-linux-android.cmake" \
+            -DFILAMENT_BUILD_TESTING=OFF \
             ${FGVIEWER_OPTION} \
             ${MATDBG_OPTION} \
             ${MATOPT_OPTION} \
